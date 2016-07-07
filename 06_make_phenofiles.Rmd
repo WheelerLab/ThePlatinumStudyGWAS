@@ -1,0 +1,610 @@
+---
+title: "06_make_phenofiles"
+author: "Heather E. Wheeler"
+date: "`r Sys.time()`"
+output: html_document
+---
+
+###Load packages, functions, paths
+```{r load,message=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(sas7bdat) ##read SAS files
+library(foreign) ##read SPSS files, doesn't work with Fossa file, ask Ryan to convert to txt
+library(psych)
+library(MASS)
+"%&%" = function(a,b) paste(a,b,sep="")
+elementMean <- function(my.list) { 
+  arr <- array(unlist(my.list),c(dim(my.list[[1]])[1],dim(my.list[[1]])[2],length(my.list)))
+  rowMeans( arr , na.rm=TRUE, dims = 2 )
+}
+source("/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/CIPN_modeling/ztransform.R")
+source("/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/CIPN_modeling/rntransform.R")
+my.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/"
+pca.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/PCA/"
+pheno.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/Datasets_from_Ryan_Cook_20151123/"
+ptcov.dir <- my.dir %&% "genotypes/"
+```
+
+###pull height phenotype for GCTA
+```{r}
+norway <- read.csv(my.dir %&% "Norway_20150122/460platina110113 Helle.csv") %>% mutate(patno=as.character(Lopenr),C_HTCM=høyde2cm) %>% dplyr::select(patno,C_HTCM)
+demo <- read.sas7bdat("/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/Datasets_from_Ryan_Cook_20151106/demographics.sas7bdat") %>% mutate(patno=as.character(patno)) %>% dplyr::select(patno,C_HTCM) #more ht phenotypes in this dataset
+hist(demo$C_HTCM)
+fam <- read.table(my.dir %&% "genotypes/gctaQC/N88_Recluster_TOP_20150911_FinalReport.postQC.fam")
+colnames(fam) <- c("FID","IID","father","mother","sex","pheno")
+patnoinfo <- read.table(my.dir %&% "genotypes/FID_IID_patno.txt",header=TRUE)
+genosamples <- inner_join(fam,patnoinfo,by="FID")
+demoComb <- rbind(demo,norway)
+demoComb <- demoComb[!duplicated(demoComb$patno), ]
+height <- left_join(genosamples,demoComb,by="patno")
+heightpheno <- dplyr::select(height,FID,IID.x,C_HTCM)
+dim(heightpheno)
+hist(heightpheno$C_HTCM)
+write.table(heightpheno,my.dir %&% "GCTA/height_cm.phen",quote=FALSE,row.names = FALSE, col.names = FALSE)
+##make shuffled phenofile
+set.seed(101)
+shuffleht <- base::sample(heightpheno$C_HTCM)
+shufpheno <- dplyr::select(heightpheno,FID,IID.x) %>% mutate(shuffleht=shuffleht)
+write.table(shufpheno,my.dir %&% "GCTA/shuffled_height_cm.phen",quote=FALSE,row.names = FALSE, col.names = FALSE)
+```
+###GCTA results
+- See 07_gcta.sh for code
+
+#### Height phenotype
+
+```
+Source	Variance	SE
+V(G)	33.573465	13.114136
+V(e)	19.141336	12.920689
+Vp	52.714800	2.476070
+V(G)/Vp	0.636889	0.245407
+logL	-2258.906
+logL0	-2270.947
+LRT	24.081
+df	1
+Pval	4.618e-07
+n	910
+```
+####Shuffled height phenotype
+
+```
+Source	Variance	SE
+V(G)	14.091383	16.237441
+V(e)	39.849214	16.287943
+Vp	53.940596	2.530541
+V(G)/Vp	0.261239	0.300564
+logL	-2270.443
+logL0	-2270.947
+LRT	1.008
+df	1
+Pval	0.1576
+n	910
+```
+
+### Samples in QC'd genotypes that have exome data
+- N88_Recluster_TOP_20150911_FinalReport.postPCA.euro.fam
+```{r}
+exomelist <- read.table("../RIKEN_genotyping/DSR_exomes_PATNO_kitNumber.txt",header=TRUE) 
+colnames(exomelist)<-c("IID","kitNumber") #submitted exome list
+completedexomes <- read.table("../RIKEN_genotyping/DSR_completed_dolan_pgrn_co_1_lookup_table.txt",header=TRUE,sep="\t") %>% mutate(kitNumber=UDF.Investigator.Sample.Name) %>% dplyr::select(Sample.Name,kitNumber)
+exomes <- inner_join(exomelist,completedexomes,by="kitNumber") %>% mutate(exome="Yes",IID=as.character(IID))
+dim(exomes)
+fam <- read.table(my.dir %&% "genotypes/N88_Recluster_TOP_20150911_FinalReport.postPCA.euro.fam")
+colnames(fam) <- c("FID","IID","father","mother","sex","pheno")
+gtinfo <- left_join(fam,exomes,by="IID") %>% mutate(exome=ifelse(is.na(exome),"No","Yes")) %>% dplyr::select(FID,IID,kitNumber,Sample.Name,exome)
+write.table(gtinfo,my.dir %&% "PtStudy_passed_genoQC_exome_info.txt",quote=F,row.names = F)
+##how many have exomes?
+table(gtinfo$exome)
+```
+
+### How many Norway genotyped samples have SCIN?
+```{r}
+demo <- read.sas7bdat("/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/Datasets_from_Ryan_Cook_20151106/demographics.sas7bdat") %>% mutate(patno=as.character(patno))
+fam <- read.table(my.dir %&% "genotypes/N88_Recluster_TOP_20150911_FinalReport.fam")
+colnames(fam) <- c("FID","IID","father","mother","sex","pheno")
+patnoinfo <- read.table(my.dir %&% "genotypes/FID_IID_patno.txt",header=TRUE) %>% mutate(patno=as.character(patno))
+genosamples <- inner_join(fam,patnoinfo,by="FID")
+norgenosamples <- dplyr::filter(genosamples,grepl('T',IID.x))
+##number Norway samples genotyped
+dim(norgenosamples)[1]
+norgenoscin <- inner_join(norgenosamples,demo,by="patno")
+##number Norway samples genotyped with SCIN
+dim(norgenoscin)[1]
+##number Norway samples need SCIN for 
+dim(norgenosamples)[1]-dim(norgenoscin)[1]
+
+morescin <-read.spss('/Users/heather/GitHub/ThePlatinumStudy/Ototoxicity_modeling/Norway_audiometry_20150221//Travis_DNA_audiogram CHEM_195 21.02.15.sav',to.data.frame=T) %>% mutate(patno=as.character(lopenr))
+norgenoscin2 <- inner_join(norgenosamples,morescin,by="patno")
+dim(norgenoscin2)
+
+##make list for Eileen J. of what we have and need
+norgenoinfo <- left_join(norgenosamples,demo,by="patno") %>% mutate(lopenr=patno,IID=IID.x) %>% dplyr::select(lopenr,FID,IID,C_Q27ARSP)
+aud <- read.sas7bdat("/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/Datasets_from_Ryan_Cook_20151106/audiometry.sas7bdat") %>% mutate(lopenr=as.character(patno)) %>% filter(patno<30000,C_Audtest==1,C_EARLR==1)
+norgenoinfo <- left_join(norgenoinfo,aud,by="lopenr") 
+a<- norgenoinfo %>% mutate(SCIN=ifelse(is.na(C_Q27ARSP),"No","Yes"), Audiometry=ifelse(is.na(C_EARLR),"No","Yes")) %>% dplyr::select(lopenr,FID,IID,SCIN,Audiometry)
+write.table(a,file=my.dir %&% "Genotyped_Norway_samples_phenotype_info_2015-11-16.csv",sep=",",quote=F,row.names=F)
+```
+###Pull 4-8kHz audiometry geom mean phenotype for Norway samples
+```{r}
+aud <- read.sas7bdat("/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/Datasets_from_Ryan_Cook_20151106/audiometry.sas7bdat") %>% mutate(lopenr=as.character(patno)) %>% filter(patno<30000,C_Audtest==1)
+##calc GM 4-8 kHz
+airl<-filter(aud,C_EARLR==1)
+airr<-filter(aud,C_EARLR==2)
+###Pull db levels for 4-8 kHz
+left <- airl %>% dplyr::select(C_CND4000, C_CND6000, C_CND8000)
+right <- airr %>% dplyr::select(C_CND4000, C_CND6000, C_CND8000)
+mean48 <- elementMean(list(left,right))
+mean48<-replace(mean48,mean48<=1,1) ###set any db values <1 equal to 1, so can take the log
+GM48 <- exp(rowMeans(log(mean48),na.rm=TRUE)) ##calc even if missing values
+norGM48<- airl %>% dplyr::select(lopenr) %>% mutate(GM48nor=GM48)
+norGM48phen <- inner_join(norGM48,norgenoinfo,by='lopenr') %>% mutate(ageaudio=Age_Audiogram)
+rnGM48nor <- rntransform(norGM48phen$GM48nor)
+norGM48phenfile <- norGM48phen %>% dplyr::select(FID,IID,ageaudio,GM48nor) %>% mutate(rnGM48nor=rnGM48nor)
+write.table(norGM48phenfile, ptcov.dir %&% "Norway.phenofile",quote=F,row.names=F)
+```
+
+###Pull 4-12kHz audiometry geom mean phenotype
+```{r}
+fam <- read.table(my.dir %&% "genotypes/N88.forImputation.fam")
+colnames(fam) <- c("FID","patno","father","mother","sex","pheno") 
+fam <- fam %>% mutate(IID=as.character(patno))
+aud <- read.sas7bdat(pheno.dir %&% "audiometry.sas7bdat")
+ageataudio <- read.sas7bdat(pheno.dir %&% "demographics.sas7bdat") %>% mutate(IID=as.character(patno))
+finaldosing <- read.sas7bdat(pheno.dir %&% "finaldosing.sas7bdat") %>% mutate(IID=as.character(patno)) %>% dplyr::select(IID,CumlCispdose,CumlBLEOdose)
+##divide by ear
+airl<-filter(aud,C_AUDTEST==1,C_EARLR==1)
+airr<-filter(aud,C_AUDTEST==1,C_EARLR==2)
+###Pull db levels for 4-12 kHz
+left <- airl %>% dplyr::select(C_CND4000, C_CND6000, C_CND8000, C_CND10000, C_CND12000)
+right <- airr %>% dplyr::select(C_CND4000, C_CND6000, C_CND8000, C_CND10000, C_CND12000)
+mean412 <- elementMean(list(left,right))
+mean412<-replace(mean412,mean412<=1,1) ###set any db values <1 equal to 1, so can take the log
+GM412 <- exp(rowMeans(log(mean412),na.rm=TRUE)) ##calc even if missing values
+patGM412<- airl %>% dplyr::select(patno) %>% mutate(GM412=GM412,IID=as.character(patno))
+patGM412 <- left_join(fam,patGM412,by="IID")
+patageaudio <- left_join(fam,ageataudio,by="IID") %>% dplyr::select(FID,IID,ageaudio)
+patcov <- left_join(patageaudio,finaldosing,by="IID")
+hist(patGM412$GM412)
+hist(log(patGM412$GM412))
+shapiro.test(log(patGM412$GM412)) #rank-normalize?
+
+rnGM412 <- rntransform(patGM412$GM412)
+hist(rnGM412)
+patGM412 <- patGM412 %>% dplyr::select(FID,IID,GM412) %>% mutate(logGM412=log(GM412),rnGM412=rnGM412)
+
+europcs <- read.table(my.dir %&% "genotypes/N88_euro_LDpruned_2015-11-18.evec",skip=1)
+eupcdf <- europcs %>% rename(PC1=V2,PC2=V3,PC3=V4,PC4=V5,PC5=V6,PC6=V7,PC7=V8,PC8=V9,PC9=V10,PC10=V11)
+patcov <- cbind(patcov,eupcdf[,2:11])
+
+write.table(patGM412,file=my.dir %&% "genotypes/PtStudy.GM412.phenofile",quote=F,row.names = F,col.names = T)
+write.table(patcov,file=my.dir %&% "genotypes/PtStudy.covfile",quote=F,row.names = F,col.names = T)
+
+summary(lm(patGM412$rnGM412~patageaudio$ageaudio))$coef
+summary(lm(patGM412$rnGM412~patageaudio$ageaudio))$r.squared
+
+#number nonmissing rnGM412 phenotypes (TRUE):
+table(is.na(patGM412$rnGM412)==FALSE)
+#number nonmissing ageaudio (TRUE):
+table(is.na(patcov$ageaudio)==FALSE)
+#number nonmissing CumlCispdose (TRUE):
+table(is.na(patcov$CumlCispdose)==FALSE)
+
+#pull Pt Study only
+poppatGM412 <- patGM412 %>% mutate(pop=ifelse(grepl("TC",IID),"Norway","PtStudy"))
+table(poppatGM412$pop)
+PtpatGM412 <- poppatGM412 %>% dplyr::filter(pop=="PtStudy")
+#number nonmissing rnGM412 phenotypes (TRUE):
+table(is.na(PtpatGM412$rnGM412)==FALSE)
+table(is.na(PtpatGM412$rnGM412)==FALSE)/sum(table(is.na(PtpatGM412$rnGM412)==FALSE))
+```
+
+###Divide sample into quartiles based on Engdahl
+```{r, quartiles, echo=TRUE, warning=FALSE,message=FALSE,fig.height=4, fig.width=5}
+###Pull db levels for 4-8 kHz
+left <- airl %>% dplyr::select(C_CND4000, C_CND6000, C_CND8000)
+right <- airr %>% dplyr::select(C_CND4000, C_CND6000, C_CND8000)
+mean468 <- elementMean(list(left,right))
+mean468<-replace(mean468,mean468<=1,1) ###set any db values <1 equal to 1, so can take the log
+AUC468 <- exp(rowMeans(log(mean468)))
+patData <- airl %>% dplyr::select(patno) %>% mutate(AUC_4_8kHz=AUC468)
+a <- left_join(patData,ageataudio,by="patno") 
+patData <- a %>% dplyr::select(patno, ageaudio, AUC_4_8kHz)
+###Define age groups per sample
+group <- floor(patData$ageaudio) ##what I did previously, more pleasant graphic
+for(i in 1:length(group)){
+  if(is.na(group[i])){
+    group[i] <- NA
+  }
+  else if(group[i] <= 29){
+    group[i] <- 29
+  }else if(group[i] > 29 && group[i] <= 39){
+    group[i] <- 39
+  }else if(group[i] > 39 && group[i] <= 49){
+    group[i] <- 49
+  }else if(group[i] > 49 && group[i] <= 59){
+    group[i] <- 59
+  }else if (group[i] > 59 && group[i] <= 69){
+    group[i] <- 69
+  }
+}
+patData <- patData %>% mutate(GROUP=group)
+##4-8kHz normal AUCs calculated in Engdahl_def_quartiles.xlsx
+engData <- read.table('~/GitHub/ThePlatinumStudy/Ototoxicity_modeling/Engdahl_quartile_AUCs_4-8kHz.txt',header=TRUE)
+aucData <- left_join(patData,engData,by="GROUP")
+aucData <- aucData[complete.cases(aucData),]
+
+###calculate which quartile
+quartile=aucData$AUC_4_8kHz
+for(i in 1:dim(aucData)[1]){
+  if(aucData$AUC_4_8kHz[i] < aucData$Q1[i]){
+    quartile[i] <- 1
+  }
+  else if(aucData$AUC_4_8kHz[i] < aucData$Q2[i]){
+    quartile[i] <- 2
+  }
+  else if(aucData$AUC_4_8kHz[i] < aucData$Q3[i]){
+    quartile[i] <- 3
+  }else{
+    quartile[i] <- 4
+  }
+}
+
+aucData <- mutate(aucData,QUARTILE=quartile,IID=as.character(patno))
+phenCombo <- left_join(patGM412,aucData,by="IID")
+
+table(aucData$QUARTILE)
+sum(table(aucData$QUARTILE))
+table(aucData$QUARTILE)/sum(table(aucData$QUARTILE))
+```
+
+###Pull EORTC CIPN20: 8 sensory items (no hearing item)
+```{r}
+fam <- read.table(my.dir %&% "genotypes/N88.forImputation.fam")
+colnames(fam) <- c("FID","patno","father","mother","sex","pheno") 
+fam <- fam %>% mutate(IID=as.character(patno))
+demog <- read.sas7bdat(pheno.dir %&% "demographics.sas7bdat")
+cipn8sens <- demog %>% dplyr::select(patno, agediagnosis, C_Q15ARSP, C_Q15BRSP, C_Q15CRSP, C_Q15DRSP, C_Q15ERSP, C_Q15FRSP, C_Q15IRSP, C_Q15JRSP) %>% rename(Tingling_hands=C_Q15ARSP, Tingling_feet=C_Q15BRSP, Numbness_hands=C_Q15CRSP, Numbness_feet=C_Q15DRSP, Shooting_pain_hands=C_Q15ERSP, Shooting_pain_feet=C_Q15FRSP, Problems_walking_feeling_ground=C_Q15IRSP, Difficulty_hot_cold_water=C_Q15JRSP)
+
+##Plot responses
+a<-cipn8sens
+ga <- gather(a,question,response,-patno, -agediagnosis) 
+ggplot(ga,aes(x=factor(response,labels=c("not\nat all","a little","quite\na bit","very\nmuch","NA")), fill=factor(response)))+geom_bar()+facet_wrap(~question)+xlab("Response")+geom_text(aes(y = (..count..),label = paste(round(ifelse((..count..)==0,"",8*((..count..)/sum(..count..)))*100,1),"%",sep="")), stat="count",vjust=-0.25,size=4)+guides(fill=FALSE)+theme_bw()+ylab("Number of patients")+coord_cartesian(ylim=c(-20,900))
+
+##Calculate Cronbach's alpha
+CIPN20_8sens <- cipn8sens[,3:10]
+psych::alpha(CIPN20_8sens)$total
+
+cipn8m <- dplyr::select(cipn8sens,patno,agediagnosis) %>% mutate(IID=as.character(patno),meanCIPN8=rowMeans(CIPN20_8sens,na.rm=TRUE))
+hist(cipn8m$meanCIPN8)
+table(cipn8m$meanCIPN8==0)
+table(ceiling(cipn8m$meanCIPN8))
+table(ceiling(cipn8m$meanCIPN8))/sum(table(ceiling(cipn8m$meanCIPN8)))
+hist(ceiling(cipn8m$meanCIPN8))
+##ordCIPN8 groups: meanCIPN8: 0, 0<x<=1, 1<x<=2, 2<x<=3
+##biCIPN8: meanCIPN8=0, >0
+##exCIPN8: meanCIPN8=0 vs 2or3
+##ord3CIPN8 groups: meanCIPN8: 0, 0<x<=1, 1<x<=3
+cipn8m <- dplyr::select(cipn8m,IID,agediagnosis,meanCIPN8) %>% mutate(ordCIPN8=ceiling(meanCIPN8),biCIPN8=ifelse(meanCIPN8==0,0,1)) %>% mutate(ord3CIPN8=ifelse(ordCIPN8==3,2,ordCIPN8))
+exCIPN8 <- ifelse(cipn8m$ordCIPN8==1,NA,cipn8m$ordCIPN8)
+exCIPN8 <- ifelse(exCIPN8>=2,1,exCIPN8)
+cipn8m <- cipn8m %>% mutate(exCIPN8=exCIPN8)
+table(cipn8m$exCIPN8)
+table(cipn8m$ord3CIPN8)
+hist(cipn8m$ord3CIPN8)
+head(cipn8m)
+dim(cipn8m)
+
+patcipn <- left_join(fam,cipn8m,by="IID") %>% dplyr::select(FID,IID,meanCIPN8,ordCIPN8,biCIPN8,exCIPN8,ord3CIPN8,agediagnosis)
+
+write.table(patcipn,file=my.dir %&% "genotypes/PtStudy.CIPN8.phenofile",quote=F,row.names = F,col.names = T)
+
+nona.patcipn <- patcipn[is.na(patcipn$ordCIPN8)==FALSE,]
+ggplot(nona.patcipn,aes(x=factor(ordCIPN8,labels=c("not\nat all","a little","quite\na bit","very\nmuch")), fill=factor(ordCIPN8)))+geom_bar()+xlab("Response")+geom_text(aes(y = (..count..),label = paste(round(ifelse((..count..)==0,"",((..count..)/sum(..count..)))*100,1),"%",sep="")), stat="count",vjust=-0.25,size=4)+guides(fill=FALSE)+theme_bw()+ylab("Number of patients")+ggtitle('ordCIPN8 (ceiling of mean CIPN8)')
+
+ggplot(nona.patcipn,aes(x=factor(ord3CIPN8,labels=c("not\nat all","a little","quite a bit or\nvery much")), fill=factor(ord3CIPN8)))+geom_bar()+xlab("Response")+geom_text(aes(y = (..count..),label = paste(round(ifelse((..count..)==0,"",((..count..)/sum(..count..)))*100,1),"%",sep="")), stat="count",vjust=-0.25,size=4)+guides(fill=FALSE)+theme_bw()+ylab("Number of patients")+ggtitle('ord3CIPN8 (ceiling of mean CIPN8, combine 2+3)')
+
+summary(lm(patcipn$agediagnosis~patcipn$ordCIPN8))$coef
+summary(lm(patcipn$agediagnosis~patcipn$ordCIPN8))$r.squared
+
+#number nonmissing ordCIPN8 phenotypes (TRUE):
+table(is.na(patcipn$ordCIPN8)==FALSE)
+#number nonmissing exCIPN8 phenotypes (TRUE):
+table(is.na(patcipn$exCIPN8)==FALSE)
+
+phenCombo <- left_join(phenCombo,patcipn,by="IID")
+phenCombo <- left_join(phenCombo,patcov,by="IID") 
+phenEric <- phenCombo %>% dplyr::select(FID.x, IID, GM412, rnGM412, logGM412, QUARTILE ,meanCIPN8,ordCIPN8,biCIPN8,ord3CIPN8,exCIPN8,ageaudio.x,agediagnosis,CumlCispdose,CumlBLEOdose) %>% dplyr::rename(FID=FID.x,quartile=QUARTILE,ageaudio=ageaudio.x)
+phentable <- phenEric %>% mutate(CumlBLEOdose=ifelse(is.nan(CumlBLEOdose),NA,CumlBLEOdose)) #should any CumlBLEOdose == 0? Check before Raynaud's GWAS
+```
+
+test run:  
+`plink --bfile N88.forImputation --1 --pheno PtStudy.CIPN8.phenofile --pheno-name biCIPN8 --logistic --adjust --covar PtStudy.covfile --out PtStudy.preImpute.2015-11-24.biCIPN8ageaudio.Cispdose`
+
+`plink --bfile N88.forImputation --1 --pheno PtStudy.CIPN8.phenofile --pheno-name exCIPN8 --logistic --adjust --covar PtStudy.covfile --out PtStudy.preImpute.2015-11-24.exCIPN8ageaudio.Cispdose`
+
+`plink --bfile N88.forImputation --1 --pheno PtStudy.CIPN8.phenofile --pheno-name biCIPN8 --logistic --adjust --covar PtStudy.covfile --covar-name ageaudio --out PtStudy.preImpute.2015-11-24.biCIPN8ageaudio`
+
+`plink --bfile N88.forImputation --1 --pheno PtStudy.CIPN8.phenofile --pheno-name exCIPN8 --logistic --adjust --covar PtStudy.covfile --covar-name ageaudio --out PtStudy.preImpute.2015-11-24.exCIPN8ageaudio`
+
+####TO DO: code for ordinal regression phenotypes-->done, see 14_ordreg_GWAS.R
+
+###Does ordCIPN8 associate with agediagnosis? CumlCispdose?
+- only agediagnosis is signficant:
+```{r cov}
+phenofile <- ptcov.dir %&% "PtStudy.phenofile"
+covfile <- ptcov.dir %&% "PtStudy.covfile"
+pheno <- read.table(phenofile,header=T)
+cov <- read.table(covfile,header=T) %>% dplyr::select(FID,starts_with("PC"))
+pheno <- left_join(pheno,cov,by="FID")
+
+#ordCIPN8 ~ agediagnosis
+m<-polr(factor(pheno$ordCIPN8) ~ pheno$agediagnosis, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)[1,]
+res <- c(res, ci[1,])
+res
+
+#ordCIPN8 ~ CumlCispdose
+m<-polr(factor(pheno$ordCIPN8) ~ pheno$CumlCispdose, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)[1,]
+res <- c(res, ci[1,])
+res
+
+#ordCIPN8 ~ agediagnosis + CumlCispdose
+m<-polr(factor(pheno$ordCIPN8) ~ pheno$agediagnosis + pheno$CumlCispdose, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)
+res <- cbind(res[1:2,],ci)
+res
+
+#ordCIPN8 ~ agediagnosis + 10 PCs
+covmat <- dplyr::select(pheno,agediagnosis,starts_with("PC"))
+covmat <- as.matrix(covmat)
+m<-polr(factor(pheno$ordCIPN8) ~ covmat, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)
+res <- cbind(res[1:dim(covmat)[2],], ci)
+res
+
+#ordCIPN8 ~ agediagnosis + CumlCispdose + 10 PCs
+covmat <- dplyr::select(pheno,agediagnosis,CumlCispdose,starts_with("PC"))
+covmat <- as.matrix(covmat)
+m<-polr(factor(pheno$ordCIPN8) ~ covmat, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)
+res <- cbind(res[1:dim(covmat)[2],], ci)
+res
+```
+
+###Pull SCIN
+- Tinnitus: ordTin (C_Q27ERSP)
+- Reduced Hearing: ordHL (C_Q27FRSP)
+- Raynaud's: ordRay (mean C_Q27CRSP & C_Q27DRSP, take ceiling)
+- also pull CumlBLEOdose
+- add to PtStudy.phenofile
+```{r}
+fam <- read.table(my.dir %&% "genotypes/N88.forImputation.fam")
+colnames(fam) <- c("FID","patno","father","mother","sex","pheno") 
+fam <- fam %>% mutate(IID=as.character(patno))
+demog <- read.sas7bdat(pheno.dir %&% "demographics.sas7bdat")
+scin <- demog %>% dplyr::select(patno,C_Q27ARSP,C_Q27BRSP,C_Q27CRSP,C_Q27DRSP,C_Q27ERSP,C_Q27FRSP) %>% rename(Pain_Tingling_Feet=C_Q27ARSP,Pain_Tingling_Hands=C_Q27BRSP,White_Cold_Hands=C_Q27CRSP,White_Cold_Feet=C_Q27DRSP,ordTin=C_Q27ERSP,ordHL=C_Q27FRSP)
+a<-scin
+dim(a)
+##Plot responses
+ga <- gather(a,question,response,-patno) 
+ga <- ga %>% mutate(type=ifelse(question=="Pain_Tingling_Feet" | question=="Pain_Tingling_Hands","parathesias",question)) %>% mutate(type=ifelse(type<=4,"Raynaud",type)) %>% mutate(type=ifelse(type<=6,"ototoxicity",type))
+ggplot(ga,aes(x=factor(response,labels=c("not\nat all","a little","quite\na bit","very\nmuch","NA")),fill=type))+geom_bar()+facet_wrap(~question)+xlab("Response")+geom_text(aes(y = (..count..),label = paste(round(ifelse((..count..)==0,"",6*((..count..)/sum(..count..)))*100,1),"%",sep="")), stat="count",vjust=-0.25,size=4)+guides(fill=FALSE)+theme_bw()+ylab("Number of patients")+coord_cartesian(ylim=c(-20,750))
+
+ray <- dplyr::select(scin,White_Cold_Hands,White_Cold_Feet)
+ordRay <- ceiling(rowMeans(ray,na.rm=TRUE))
+hist(ordRay)
+table(ordRay)/sum(table(ordRay))
+morepheno <- dplyr::select(scin,patno,ordTin,ordHL) %>% mutate(IID=as.character(patno),ordRay=ordRay)
+hist(morepheno$ordTin)
+table(morepheno$ordTin)/sum(table(morepheno$ordTin))
+hist(morepheno$ordHL)
+table(morepheno$ordHL)/sum(table(morepheno$ordHL))
+
+phentable2<-left_join(phentable,morepheno,by="IID")
+#write.table(phentable2,file=my.dir %&% "genotypes/PtStudy.phenofile",quote=F,row.names = F,col.names = T) --> this file is now PtStudy.phenofile.20160119
+```
+
+###Do ordTin and ordHL associate with agediagnosis? CumlCispdose?
+- only agediagnosis is signficant:
+```{r}
+phenofile <- ptcov.dir %&% "PtStudy.phenofile"
+covfile <- ptcov.dir %&% "PtStudy.covfile"
+pheno <- read.table(phenofile,header=T)
+cov <- read.table(covfile,header=T) %>% dplyr::select(FID,starts_with("PC"))
+pheno <- left_join(pheno,cov,by="FID")
+
+#ordTin ~ agediagnosis
+m<-polr(factor(pheno$ordTin) ~ pheno$agediagnosis, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)[1,]
+res <- c(res, ci[1,])
+res
+
+#ordTin ~ CumlCispdose
+m<-polr(factor(pheno$ordTin) ~ pheno$CumlCispdose, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)[1,]
+res <- c(res, ci[1,])
+res
+
+#ordTin ~ agediagnosis + CumlCispdose
+m<-polr(factor(pheno$ordTin) ~ pheno$agediagnosis + pheno$CumlCispdose, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)
+res <- cbind(res[1:2,],ci)
+res
+
+#ordTin ~ agediagnosis + 10 PCs
+covmat <- dplyr::select(pheno,agediagnosis,starts_with("PC"))
+covmat <- as.matrix(covmat)
+m<-polr(factor(pheno$ordTin) ~ covmat, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)
+res <- cbind(res[1:dim(covmat)[2],], ci)
+res
+
+#ordTin ~ agediagnosis + CumlCispdose + 10 PCs
+covmat <- dplyr::select(pheno,agediagnosis,CumlCispdose,starts_with("PC"))
+covmat <- as.matrix(covmat)
+m<-polr(factor(pheno$ordTin) ~ covmat, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)
+res <- cbind(res[1:dim(covmat)[2],], ci)
+res
+
+#ordHL ~ agediagnosis
+m<-polr(factor(pheno$ordHL) ~ pheno$agediagnosis, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)[1,]
+res <- c(res, ci[1,])
+res
+
+#ordHL ~ CumlCispdose
+m<-polr(factor(pheno$ordHL) ~ pheno$CumlCispdose, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)[1,]
+res <- c(res, ci[1,])
+res
+
+#ordHL ~ agediagnosis + CumlCispdose
+m<-polr(factor(pheno$ordHL) ~ pheno$agediagnosis + pheno$CumlCispdose, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)
+res <- cbind(res[1:2,],ci)
+res
+
+#ordHL ~ agediagnosis + 10 PCs
+covmat <- dplyr::select(pheno,agediagnosis,starts_with("PC"))
+covmat <- as.matrix(covmat)
+m<-polr(factor(pheno$ordHL) ~ covmat, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)
+res <- cbind(res[1:dim(covmat)[2],], ci)
+res
+
+#ordHL ~ agediagnosis + CumlCispdose + 10 PCs
+covmat <- dplyr::select(pheno,agediagnosis,CumlCispdose,starts_with("PC"))
+covmat <- as.matrix(covmat)
+m<-polr(factor(pheno$ordHL) ~ covmat, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)
+res <- cbind(res[1:dim(covmat)[2],], ci)
+res
+```
+
+###Does ordRay associate with agediagnosis? CumlBLEOdose?
+- only agediagnosis is signficant:
+```{r}
+phenofile <- ptcov.dir %&% "PtStudy.phenofile"
+covfile <- ptcov.dir %&% "PtStudy.covfile"
+pheno <- read.table(phenofile,header=T)
+cov <- read.table(covfile,header=T) %>% dplyr::select(FID,starts_with("PC"))
+pheno <- left_join(pheno,cov,by="FID")
+
+#ordRay ~ agediagnosis
+m<-polr(factor(pheno$ordRay) ~ pheno$agediagnosis, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)[1,]
+res <- c(res, ci[1,])
+res
+
+#ordRay ~ CumlBLEOdose
+m<-polr(factor(pheno$ordRay) ~ pheno$CumlBLEOdose, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)[1,]
+res <- c(res, ci[1,])
+res
+
+#ordRay ~ agediagnosis + CumlBLEOdose
+m<-polr(factor(pheno$ordRay) ~ pheno$agediagnosis + pheno$CumlBLEOdose, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)
+res <- cbind(res[1:2,],ci)
+res
+
+#ordRay ~ agediagnosis + 10 PCs
+covmat <- dplyr::select(pheno,agediagnosis,starts_with("PC"))
+covmat <- as.matrix(covmat)
+m<-polr(factor(pheno$ordRay) ~ covmat, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)
+res <- cbind(res[1:dim(covmat)[2],], ci)
+res
+
+#ordRay ~ agediagnosis + CumlBLEOdose + 10 PCs
+covmat <- dplyr::select(pheno,agediagnosis,CumlBLEOdose,starts_with("PC"))
+covmat <- as.matrix(covmat)
+m<-polr(factor(pheno$ordRay) ~ covmat, Hess=TRUE)
+p <- pnorm(abs(summary(m)$coefficients[, "t value"]), lower.tail = FALSE) * 2
+or <- exp(summary(m)$coefficients[,"Value"])
+ci <- exp(confint.default(m))
+colnames(ci) <- c("lCI","uCI")
+res <- cbind(summary(m)$coefficients[,],"OR"=or,"pval"=p)
+res <- cbind(res[1:dim(covmat)[2],], ci)
+res
+```

@@ -1,0 +1,27 @@
+---
+title: "21_check_prior_ototox_SNPs"
+author: "Heather Wheeler"
+date: "`r Sys.time()`"
+output: html_document
+---
+
+Load packages, functions, paths
+```{r load}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+"%&%" = function(a,b) paste(a,b,sep="")
+my.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/"
+res.dir <- my.dir %&% "GWAS_results/"
+```
+
+```{r}
+res <- read.table(res.dir %&% "N88.imputed_rnGM412_age.NEWcisp.PCs1-10_chr1-22.assoc.dosage",header=T)
+prior <- read.table(res.dir %&% "prior_ototox_variants.txt",header=T)
+info <- left_join(prior,res,by="SNP")
+kable(info)
+write.table(info, file=res.dir %&% "N88.imputed_rnGM412_age.NEWcisp.PCs1-10_chr1-22.assoc.dosage_prior_ototox_variants.txt",row.names=F, quote=F)
+```
+
+A1 is the effect allele, thus the RISK allele (hearing loss allele) in Ross et al. for rs1800460 is associated with better hearing (negative beta, lower rnGM412) in our study. Opposite effects. No replication.

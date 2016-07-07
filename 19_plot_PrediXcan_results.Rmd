@@ -1,0 +1,56 @@
+---
+title: "19_plot_PrediXcan_results"
+author: "Heather Wheeler"
+date: "`r Sys.time()`"
+output: html_document
+---
+
+Load packages, functions, paths
+```{r load,warning=F,message=F}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(calibrate)
+library(knitr)
+"%&%" = function(a,b) paste(a,b,sep="")
+my.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/"
+res.dir <- my.dir %&% "genotypes/UMich_imputation_results/PrediXcan/PrediXcan_results/"
+source(my.dir %&% "genotypes/qqunif_px.r")
+source(my.dir %&% "manhattan.R")
+```
+
+## rnGM412 = pred_exp + ageaudio + CumlCispdose + 10 PCs
+### Bonf. sig. tissues:
+- TW_Brain-FrontalCortex-BA9_ElasticNet.0.5
+- TW_Esophagus-GastroesophagealJunction_ElasticNet.0.5
+- TW_Lung_ElasticNet.0.5
+- nearly sig. TW_Pituitary_ElasticNet.0.5
+
+```{r rnGM412,warning=FALSE,fig.width=6.5,fig.height=6.5,eval=TRUE,results='asis'}
+tislist <- scan(my.dir %&% "pred_exp_list","c")
+wfs1res <- data.frame()
+for(tis in tislist){
+  res = read.table(res.dir %&% "N88_n953_rnGM412_ageaudio.cisp.10PCs_" %&% tis %&% ".linreg.PrediXcan",header=T)
+  newres = mutate(res,CHR=as.numeric(gsub("chr","",chr)),BP=start,SNP=gene) %>% arrange(CHR,BP)
+  res <- newres[complete.cases(newres),] #rm NAs
+  wfs1res <- rbind(wfs1res,filter(res,gene=="WFS1") %>% mutate(tissue=tis))
+  if(min(res$P)<0.0001){
+    manhattan(res,suggestiveline=FALSE,genomewideline = -log10(0.05/dim(res)[1]),main="rnGM412 " %&% tis,annotatePval = 0.0001,cex.main=0.8)
+    tophits <- dplyr::filter(res,P<=0.0001) %>% arrange(P) %>% dplyr::select(-CHR,-BP,-SNP)
+    cat('\n')
+    print(kable(tophits))
+    cat('\n')
+  }
+  else{
+    manhattan(res,suggestiveline=FALSE,genomewideline = -log10(0.05/dim(res)[1]),main="rnGM412 " %&% tis,cex.main=0.8)
+    cat('\n')
+  }
+  qq<-qqunif(res$P,plot=TRUE,title="rnGM412 " %&% tis)
+  cat('\n')
+}
+```
+
+###WFS1 PrediXcan results
+```{r}
+kable(dplyr::select(wfs1res,-CHR,-BP,-SNP))
+```

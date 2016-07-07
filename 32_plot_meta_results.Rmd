@@ -1,0 +1,52 @@
+---
+title: "32_plot_meta_results"
+author: "Heather Wheeler"
+date: "March 22, 2016"
+output: html_document
+---
+
+Load packages, functions, paths
+```{r load}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(calibrate)
+library(knitr)
+"%&%" = function(a,b) paste(a,b,sep="")
+my.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/"
+source(my.dir %&% "genotypes/qqunif.r")
+source(my.dir %&% "manhattan.R")
+```
+
+Meta results
+```{r}
+meta = read.table(my.dir %&% "StJude_results/METAANALYSIS_ototox_1.tbl.sorted", header=T)
+meta = dplyr::filter(meta, Weight==749) #only look at snps in both studies
+dim(meta)
+write.table(meta, file=my.dir %&% "StJude_results/METAANALYSIS_ototox_1_n749_NEWdose.tbl.sorted",quote=F,row.names=F )
+meta = read.table(my.dir %&% "StJude_results/METAANALYSIS_ototox_1_n749_NEWdose.tbl.sorted", header=T)
+dim(meta)
+meta = mutate(meta, SNP=MarkerName)
+genes<-read.table(my.dir %&% "deafness_genes/N88.imputed_rnGM412_age.NEWcisp.10PCs_chr1-22.assoc.dosage_deafness_genes.txt",header=T) %>% arrange(P)
+metagenes = inner_join(meta,genes,by='SNP')
+dim(metagenes)
+nn = length(metagenes$P)
+xx =  -log10((1:nn)/(nn+1))
+jpeg(filename= my.dir %&% "plots/Meta_StJude_PtStudy_rnGM412_age.NEWdose.10PCs_qqplot_deafness_genes.jpeg",res=100)
+qqunif(meta$P.value,plot=TRUE,BH=F)
+points(xx,-log10(metagenes$P.value),cex=0.5,pch=19,col='red')
+legend('bottomright', c("Mendelian Deafness\nGene Meta SNPs","All Meta SNPs"),col=c('red','black'), pch=19, cex=1)
+dev.off()
+```
+
+Make Table of top meta hits
+```{r}
+stjude = read.table(my.dir %&% "StJude_results/rsid_cox_results_02092016.txt",header=T)
+ptstudy = read.table(my.dir %&% "GWAS_results/N88.imputed_rnGM412_age.NEWcisp.PCs1-10_chr1-22.assoc.dosage.sorted",header=T)
+topmeta = filter(meta,P.value<1e-05)
+topmeta <- left_join(topmeta,stjude,by='SNP')
+topmeta <- inner_join(topmeta,ptstudy,by='SNP')
+table <- topmeta %>% dplyr::select(SNP, CHR, Allele1, Allele2, p_snp, P, Direction, Zscore, P.value)
+print(kable(table))
+table
+```

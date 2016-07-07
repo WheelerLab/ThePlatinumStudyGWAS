@@ -1,0 +1,227 @@
+---
+title: "22_SNPxDose_interaction"
+author: "Heather Wheeler"
+date: "January 5, 2016"
+output: html_document
+---
+
+########################################
+#### Test for SNPxDose interactions ####
+#### by Heather E. Wheeler 20160328 ####
+#### updated doses                  ####
+########################################
+```{r}
+args <- commandArgs(trailingOnly=T)
+"%&%" = function(a,b) paste(a,b,sep="")
+date = Sys.Date()
+library(dplyr)
+library(ggplot2)
+library(sas7bdat) ##read SAS files
+chr <- args[1]
+phen <- args[2]
+
+#for testing:
+chr <- "4"
+phen <- "rnGM412"
+
+#my.dir <- "/group/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/"
+my.dir <- "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/"
+geno.dir <- my.dir %&% "genotypes/UMich_imputation_results/mach_dosage_files/"
+pheno.dir <- my.dir %&% "genotypes/"
+res.dir <- my.dir %&% "GWAS_results/"
+
+genofile <- geno.dir %&% "N88.imputed_maf0.01_R20.8_1000G.chr" %&% chr %&% ".SNPxID.rds"
+phenofile <- pheno.dir %&% "PtStudy.phenofile_20160328"
+bimfile <- geno.dir %&% "N88.imputed_maf0.01_R20.8_1000G.chr" %&% chr %&% ".bim.rds"
+
+
+snp<-read.table(pheno.dir %&% "rs62283056_PtStudy.pheno.cov.txt",header=TRUE) %>% dplyr::select(SNP,IID)
+pheno <- read.table(phenofile,header=T) %>% mutate(IID=as.character(IID))
+data <- left_join(pheno,snp,by='IID') %>% mutate(rnGM412=-1*rnGM412) #flip sign so neg effect, worse hearing
+
+#original GWAS hit
+summary(lm(rnGM412~SNP+ageaudio+CumlCispdose+PC1+PC2+PC3+PC4+PC5+PC6+PC7+PC8+PC9+PC10,data))
+summary(lm(rnGM412~SNP+ageaudio+CumlCispdose,data))
+summary(lm(rnGM412~SNP+ageaudio,data))
+summary(lm(rnGM412~SNP,data))
+
+#covariates
+res<-summary(lm(rnGM412~ageaudio,data))
+res
+res$coef[2,4]
+ggplot(data,aes(x=ageaudio,y=rnGM412)) + geom_point()+geom_smooth(method = "lm")
+ggplot(data,aes(x=ageaudio,y=-1*GM412)) + geom_point()+geom_smooth(method = "lm")
+summary(lm(rnGM412~CumlCispdose,data))
+ggplot(data,aes(x=CumlCispdose,y=rnGM412)) + geom_point()+geom_smooth(method = "lm")
+ggplot(data,aes(x=CumlCispdose,y=-1*GM412)) + geom_point()+geom_smooth(method = "lm")
+summary(lm(rnGM412~PC1,data))$coef[2,]
+summary(lm(rnGM412~PC2,data))$coef[2,]
+summary(lm(rnGM412~PC3,data))$coef[2,]
+summary(lm(rnGM412~PC4,data))$coef[2,]
+summary(lm(rnGM412~PC5,data))$coef[2,]
+summary(lm(rnGM412~PC6,data))$coef[2,]
+summary(lm(rnGM412~PC7,data))$coef[2,]
+summary(lm(rnGM412~PC8,data))$coef[2,]
+summary(lm(rnGM412~PC9,data))$coef[2,]
+summary(lm(rnGM412~PC10,data))$coef[2,]
+
+
+#SNPxdose interaction 
+summary(lm(rnGM412~ageaudio+SNP*CumlCispdose+PC1+PC2+PC3+PC4+PC5+PC6+PC7+PC8+PC9+PC10,data))
+summary(lm(rnGM412~ageaudio+SNP*CumlCispdose,data))
+summary(lm(rnGM412~ageaudio*SNP,data))
+summary(lm(rnGM412~ageaudio*SNP+CumlCispdose,data))
+summary(lm(rnGM412~ageaudio*SNP+CumlCispdose*SNP,data))
+
+#SNPxdosegroup interaction 
+summary(lm(rnGM412~SNP+ageaudio+dosegroup,data))
+summary(lm(rnGM412~ageaudio+dosegroup*SNP,data))
+
+##make plots
+ggplot(data,aes(x=SNP,y=rnGM412))+geom_point()+geom_smooth(method = "lm")
+data <- mutate(data,SNPround=round(SNP))
+ggplot(data,aes(x=factor(SNPround),y=rnGM412)) + geom_boxplot()+ xlab("rs62283056 genotype")
+ggplot(data,aes(x=SNP,y=rnGM412, color=factor(dosegroup)))+geom_point()+geom_smooth(method = "lm")
+data0 <- filter(data,dosegroup==0)
+p<-ggplot(data0,aes(x=SNP,y=rnGM412))+geom_point(color='red')+geom_smooth(method = "lm",color='red')
+data1 <- filter(data,dosegroup==1)
+p+geom_point(data=data1,aes(x=SNP,y=rnGM412),color='blue')+geom_smooth(data=data1,method = "lm",color='blue')
+
+##just plot 0,1,2 genotypes (round)
+databox <- filter(data,is.na(dosegroup)==FALSE)
+ggplot(databox,aes(x=factor(SNPround),y=rnGM412, color=factor(dosegroup,labels=c("\u2264 300","> 300")))) + geom_boxplot()+ scale_color_discrete(name="Cisplatin dose") + xlab("rs62283056 genotype")
+summary(lm(rnGM412~ageaudio+SNP*CumlCispdose,databox))
+summary(lm(rnGM412~ageaudio+SNP*dosegroup,databox))
+
+
+
+##Plot GM412
+databox <- filter(data,is.na(dosegroup)==FALSE)
+databox<-mutate(databox,SNPgt=factor(SNPround,labels=c("GG","CG","CC")))
+ggplot(databox,aes(x=SNPgt,y=GM412, color=factor(dosegroup,labels=c("\u2264 300","> 300")))) + geom_boxplot()+ scale_color_discrete(name="Cisplatin dose") + xlab("rs62283056 genotype")
+ggplot(databox,aes(x=SNPgt,y=-1*GM412, color=factor(dosegroup,labels=c("\u2264 300","> 300")))) + geom_boxplot()+ scale_color_discrete(name="Cisplatin dose") + xlab("rs62283056 genotype")+ylab("Hearing threshold 4-12 kHz (dB)") +theme_bw()
+ggplot(databox,aes(x=SNPgt,y=-1*GM412)) + geom_boxplot()+ xlab("rs62283056 genotype")+ylab("Hearing threshold 4-12 kHz (dB)") +theme_bw()
+
+ggplot(data,aes(x=SNP,y=GM412, color=factor(dosegroup)))+geom_point()+geom_smooth(method = "lm")
+summary(lm(GM412~ageaudio+SNP*CumlCispdose,databox))
+summary(lm(GM412~ageaudio+SNP*dosegroup,databox))
+
+subdatabox <- databox[is.na(databox$ageaudio)==FALSE,]
+table(subdatabox$dosegroup)
+```
+
+##calculate odds ratio
+```{r}
+#divide GM412<=20 and >20
+newdata <- mutate(data,biGM412=ifelse(GM412>20,1,0))
+table(newdata$biGM412)
+newdata <- newdata[is.na(newdata$ageaudio)==FALSE,]
+newdata <- newdata[is.na(newdata$CumlCispdose)==FALSE,]
+table(newdata$biGM412)
+res<-summary(glm(biGM412~SNP+ageaudio+CumlCispdose+PC1+PC2+PC3+PC4+PC5+PC6+PC7+PC8+PC9+PC10,newdata,family='binomial'))
+res$coef[2,]
+OR = exp(res$coef[2,1])
+lCI = exp(res$coef[2,1]-2*res$coef[2,2])
+uCI = exp(res$coef[2,1]+2*res$coef[2,2])
+cat("OR:",OR," [",lCI,",",uCI,"]")
+#divide GM412<=40 and >40
+newdata <- mutate(data,biGM412=ifelse(GM412>40,1,0))
+table(newdata$biGM412)
+res<-summary(glm(biGM412~SNP+ageaudio+CumlCispdose+PC1+PC2+PC3+PC4+PC5+PC6+PC7+PC8+PC9+PC10,newdata,family='binomial'))
+res$coef[2,]
+OR = exp(res$coef[2,1])
+lCI = exp(res$coef[2,1]-2*res$coef[2,2])
+uCI = exp(res$coef[2,1]+2*res$coef[2,2])
+cat("OR:",OR," [",lCI,",",uCI,"]")
+#divide GM412<=60 and >60
+newdata <- mutate(data,biGM412=ifelse(GM412>60,1,0))
+table(newdata$biGM412)
+res<-summary(glm(biGM412~SNP+ageaudio+CumlCispdose+PC1+PC2+PC3+PC4+PC5+PC6+PC7+PC8+PC9+PC10,newdata,family='binomial'))
+res$coef[2,]
+OR = exp(res$coef[2,1])
+lCI = exp(res$coef[2,1]-2*res$coef[2,2])
+uCI = exp(res$coef[2,1]+2*res$coef[2,2])
+cat("OR:",OR," [",lCI,",",uCI,"]")
+
+##effect size of SNP on dB
+res<-summary(lm(logGM412~SNP+ageaudio+CumlCispdose+PC1+PC2+PC3+PC4+PC5+PC6+PC7+PC8+PC9+PC10,newdata))
+res$coef[2,]
+eff = exp(res$coef[2,1])
+lCI = exp(res$coef[2,1]-2*res$coef[2,2])
+uCI = exp(res$coef[2,1]+2*res$coef[2,2])
+cat("dB change:",eff," [",lCI,",",uCI,"]")
+
+##effect size of SNP on dB
+res<-summary(lm(GM412~SNP+ageaudio+CumlCispdose+PC1+PC2+PC3+PC4+PC5+PC6+PC7+PC8+PC9+PC10,newdata))
+res$coef[2,]
+eff = res$coef[2,1]
+lCI = res$coef[2,1]-2*res$coef[2,2]
+uCI = res$coef[2,1]+2*res$coef[2,2]
+cat("dB change:",eff," [",lCI,",",uCI,"]")
+```
+
+##power ideas
+Note: the rnGM412 phenotype has mean=0 and sd=1
+beta ~ cohen's d, is this true?
+beta for top snp rs62283056 = 0.3540
+```{r}
+library(pwr)
+pwr.t.test(d=0.35,sig.level=0.05,power=0.8,type="one.sample")
+pwr.t.test(d=0.35,sig.level=5e-08,power=0.8,type="one.sample")
+
+powercalc <- function(d,n,sig.level){
+  return(pwr.t.test(n=n,d=d,sig.level=sig.level,type="one.sample"))
+}
+
+powertable <- data.frame()
+for(d in c(0.20,0.25,0.30,0.35)){
+  for(n in 50:500){
+    p<-powercalc(d,n,0.05)$power
+    powertable <- rbind(powertable,c(n,d,0.05,p))
+  }
+}
+colnames(powertable) <- c("n","d","alpha","power")
+powertable <- mutate(powertable,`Effect Size`=factor(d))
+ggplot(powertable,aes(x=n,y=power,color=`Effect Size`)) + geom_line() + theme_bw() +ggtitle("Replication cohort sig.level = 0.05")
+
+##meta-analysis power
+powertable <- data.frame()
+for(d in c(0.20,0.25,0.30,0.35)){
+  for(n in 50:500){
+    p<-powercalc(d,n+500,5e-08)$power
+    powertable <- rbind(powertable,c(n+500,d,0.05,p))
+  }
+}
+
+colnames(powertable) <- c("n","d","alpha","power")
+powertable <- mutate(powertable,`Effect Size`=factor(d))
+ggplot(powertable,aes(x=n,y=power,color=`Effect Size`)) + geom_line() + theme_bw() +ggtitle("Combined cohort sig.level = 5e-08")
+```
+
+###Plot phenotype, top SNP
+```{r,fig.width=5,fig.height=5}
+hist(-1*databox$GM412,xlab="Hearing threshold 4-12 kHz (dB)",main="Cisplatin-associated hearing loss")
+hist(-1*log(databox$GM412),xlab="log hearing threshold 4-12 kHz (dB)",main="")
+hist(-1*databox$rnGM412,xlab="Normalized hearing threshold 4-12 kHz",main="GWAS Phenotype")
+```
+
+```{r,fig.width=5,fig.height=5}
+ggplot(databox,aes(x=SNPgt,y=-1*rnGM412)) + geom_boxplot(outlier.shape = NA)+ geom_jitter(alpha=0.5,color='blue',position = position_jitter(width = 0.1))+xlab("rs62283056 genotype")+ylab("Normalized hearing threshold 4-12 kHz") +theme_bw(16)
+fig2=ggplot(databox,aes(x=SNPgt,y=-1*GM412)) + geom_boxplot(outlier.shape = NA)+ geom_jitter(alpha=0.5,color='blue',position = position_jitter(width = 0.1))+ xlab("rs62283056 genotype")+ylab("Hearing threshold 4-12 kHz (dB)") +theme_bw(12) +geom_hline(yintercept=-20,col='red',size=1.5)
+
+fig2
+ggsave(my.dir %&% "plots/GM412_v_snp.eps",device=cairo_ps,width=4.8,height=4)
+
+pdf(file=my.dir %&% "plots/GM412_v_snp.pdf",width=4,height=4)
+fig2
+dev.off()
+
+
+summary(filter(databox,SNPgt=='GG')$GM412)
+summary(filter(databox,SNPgt=='CG')$GM412)
+summary(filter(databox,SNPgt=='CC')$GM412)
+```
+
+```{r}
+ggplot(databox,aes(x=SNPgt,y=-1*GM412,fill=factor(dosegroup,labels=c("\u2264 300","> 300")),color=factor(dosegroup,labels=c("\u2264 300","> 300")))) + geom_boxplot(color='black',alpha=0.1,outlier.shape = NA)+geom_point(position=position_jitterdodge())+ scale_color_discrete(name="Cisplatin dose") +scale_fill_discrete(name="Cisplatin dose") + xlab("rs62283056 genotype")+ylab("Hearing threshold 4-12 kHz (dB)") +theme_bw(16)
+```

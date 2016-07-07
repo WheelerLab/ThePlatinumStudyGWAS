@@ -1,0 +1,66 @@
+---
+title: "06_make_phenofiles"
+author: "Heather E. Wheeler"
+date: "`r Sys.time()`"
+output: html_document
+---
+
+###Load packages, functions, paths
+```{r load,message=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(sas7bdat) ##read SAS files
+library(foreign) ##read SPSS files, doesn't work with Fossa file, ask Ryan to convert to txt
+library(psych)
+library(MASS)
+"%&%" = function(a,b) paste(a,b,sep="")
+elementMean <- function(my.list) { 
+  arr <- array(unlist(my.list),c(dim(my.list[[1]])[1],dim(my.list[[1]])[2],length(my.list)))
+  rowMeans( arr , na.rm=TRUE, dims = 2 )
+}
+source("/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/CIPN_modeling/ztransform.R")
+source("/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/CIPN_modeling/rntransform.R")
+my.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/"
+pca.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/PCA/"
+pheno.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/Datasets_from_Ryan_Cook_20160328/"
+ptcov.dir <- my.dir %&% "genotypes/"
+```
+
+To keep a consistent sample size (n=512), I will just update the cisplatin dose with new data for the ototox GWAS.
+
+```{r}
+prior <- read.table(ptcov.dir %&% "PtStudy.phenofile",header=T)
+table(is.na(prior$rnGM412 & prior$ageaudio & prior$CumlCispdose))
+gwasset <- is.na(prior$rnGM412 & prior$ageaudio & prior$CumlCispdose) == FALSE
+gwas <- prior[gwasset,]
+
+finaldosing <- read.sas7bdat(pheno.dir %&% "finaldosing.sas7bdat") %>% mutate(IID=as.character(PATNO)) %>% dplyr::select(IID,CumlCispdose)
+newpheno <- left_join(gwas,finaldosing,by="IID") 
+plot(newpheno$CumlCispdose.x,newpheno$CumlCispdose.y)
+newpheno <- rename(newpheno,oldCumlCispdose=CumlCispdose.x, CumlCispdose=CumlCispdose.y) %>% mutate(dosegroup=ifelse(CumlCispdose<=300,0,1))
+write.table(newpheno,file=ptcov.dir %&% "PtStudy.phenofile_20160328",row.names=F,quote=F)
+```
+
+How many have diabetes?
+```{r}
+chronic <- read.sas7bdat(pheno.dir %&% "chronic.sas7bdat")
+snp<-read.table(ptcov.dir %&% "rs62283056_PtStudy.pheno.cov.txt",header=TRUE) %>% dplyr::select(SNP,IID) 
+diabIns <- dplyr::filter(chronic, C_COPRC=="Diabetes requiring insulin") %>% mutate(diabIns=C_COPRCRSP, IID=as.character(PATNO)) %>% dplyr::select(IID,diabIns)
+diabPill <- dplyr::filter(chronic, C_COPRC=="Diabetes requiring tablets or pills") %>% mutate(diabPill=C_COPRCRSP, IID=as.character(PATNO)) %>% dplyr::select(IID,diabPill)
+newpheno<- read.table(ptcov.dir %&% "PtStudy.phenofile_20160328", header=T) %>% mutate(IID=as.character(IID)) %>% dplyr::select(FID,IID,GM412,rnGM412,ageaudio,CumlCispdose)
+snpdiab <- left_join(snp,diabIns,by="IID")
+snpdiab <- left_join(snpdiab,diabPill,by="IID")
+Ptsnpdiab <- left_join(newpheno,snpdiab,by="IID")
+table(Ptsnpdiab$diabIns)
+table(Ptsnpdiab$diabPill)
+filter(Ptsnpdiab,diabIns==1)
+filter(Ptsnpdiab,diabPill==1)
+filter(Ptsnpdiab,diabIns==1|diabPill==1)
+#of those with diabetes, prop chromosomes with ototox risk allele
+5/28
+#exp prop with risk allele based on MAF
+2*0.21*0.79 + 0.21^2
+summary(filter(Ptsnpdiab,diabIns==1|diabPill==1))
+summary(Ptsnpdiab)
+```

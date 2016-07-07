@@ -1,0 +1,68 @@
+---
+title: "15_make_noneuro_phenofiles"
+author: "Heather E. Wheeler"
+date: "`r Sys.time()`"
+output: html_document
+---
+###Load packages, functions, paths
+```{r load,message=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(sas7bdat) ##read SAS files
+library(foreign) ##read SPSS files, doesn't work with Fossa file, ask Ryan to convert to txt
+library(psych)
+library(MASS)
+"%&%" = function(a,b) paste(a,b,sep="")
+elementMean <- function(my.list) { 
+  arr <- array(unlist(my.list),c(dim(my.list[[1]])[1],dim(my.list[[1]])[2],length(my.list)))
+  rowMeans( arr , na.rm=TRUE, dims = 2 )
+}
+source("/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/CIPN_modeling/ztransform.R")
+source("/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/CIPN_modeling/rntransform.R")
+my.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/"
+pca.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/PCA/"
+pheno.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/Datasets_from_Ryan_Cook_20151123/"
+ptcov.dir <- my.dir %&% "genotypes/"
+```
+
+```{r}
+noneuro <- read.table(ptcov.dir %&% "N88.noneuro.10PCs.covfile",header=TRUE,sep=" ")
+aud <- read.sas7bdat(pheno.dir %&% "audiometry.sas7bdat")
+ageataudio <- read.sas7bdat(pheno.dir %&% "ageataudio.sas7bdat") %>% mutate(IID=as.character(patno))
+finaldosing <- read.sas7bdat(pheno.dir %&% "finaldosing.sas7bdat") %>% mutate(IID=as.character(patno)) %>% dplyr::select(IID,CumlCispdose,CumlBLEOdose)
+##divide by ear
+airl<-filter(aud,C_AUDTEST==1,C_EARLR==1)
+airr<-filter(aud,C_AUDTEST==1,C_EARLR==2)
+###Pull db levels for 4-12 kHz
+left <- airl %>% dplyr::select(C_CND4000, C_CND6000, C_CND8000, C_CND10000, C_CND12000)
+right <- airr %>% dplyr::select(C_CND4000, C_CND6000, C_CND8000, C_CND10000, C_CND12000)
+mean412 <- elementMean(list(left,right))
+mean412<-replace(mean412,mean412<=1,1) ###set any db values <1 equal to 1, so can take the log
+GM412 <- exp(rowMeans(log(mean412),na.rm=TRUE)) ##calc even if missing values
+patGM412<- airl %>% dplyr::select(patno) %>% mutate(GM412=GM412,IID=as.character(patno))
+patGM412 <- left_join(noneuro,patGM412,by="IID")
+patageaudio <- left_join(noneuro,ageataudio,by="IID") 
+patcov <- left_join(patageaudio,finaldosing,by="IID") %>% dplyr::select(-CNO)%>% mutate(CumlBLEOdose=ifelse(is.nan(CumlBLEOdose),NA,CumlBLEOdose),ageaudio=ifelse(is.nan(ageaudio),NA,ageaudio))
+hist(patGM412$GM412)
+hist(log(patGM412$GM412))
+shapiro.test(log(patGM412$GM412)) #rank-normalize?
+
+rnGM412 <- rntransform(patGM412$GM412)
+hist(rnGM412)
+patGM412 <- patGM412 %>% dplyr::select(FID,IID,GM412) %>% mutate(logGM412=log(GM412),rnGM412=rnGM412)
+
+
+write.table(patGM412,file=my.dir %&% "genotypes/PtStudy.noneuro.GM412.phenofile",quote=F,row.names = F,col.names = T)
+write.table(patcov,file=my.dir %&% "genotypes/PtStudy.noneuro.covfile",quote=F,row.names = F,col.names = T)
+
+summary(lm(patGM412$rnGM412~patageaudio$ageaudio))$coef
+summary(lm(patGM412$rnGM412~patageaudio$ageaudio))$r.squared
+
+#number nonmissing rnGM412 phenotypes (TRUE):
+table(is.na(patGM412$rnGM412)==FALSE)
+#number nonmissing ageaudio (TRUE):
+table(is.na(patcov$ageaudio)==FALSE)
+#number nonmissing CumlCispdose (TRUE):
+table(is.na(patcov$CumlCispdose)==FALSE)
+```

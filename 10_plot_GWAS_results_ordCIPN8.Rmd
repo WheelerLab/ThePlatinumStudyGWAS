@@ -1,0 +1,42 @@
+---
+title: "10_plot_GWAS_results_ordCIPN8"
+author: "Heather Wheeler"
+date: "`r Sys.time()`"
+output: html_document
+---
+
+Load packages, functions, paths
+```{r load,message=FALSE,warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(calibrate)
+library(knitr)
+"%&%" = function(a,b) paste(a,b,sep="")
+my.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/"
+res.dir <- my.dir %&% "GWAS_results/"
+source(my.dir %&% "genotypes/qqunif.r")
+source(my.dir %&% "manhattan.R")
+```
+
+
+```{r,warning=FALSE,fig.width=6,fig.height=6,eval=TRUE,results='asis'}
+reslist <- scan(res.dir %&% "CIPN8_res_list","c")
+
+for(results in reslist){
+  res = read.table(res.dir %&% results,header=T)
+  res <- res[complete.cases(res),] #rm NAs
+  if(min(res$P)<1e-06){
+    manhattan(res,suggestiveline=FALSE,main=results,cex.main=0.7,annotatePval = 1e-06)
+    cat('\n')
+    tophits <- dplyr::filter(res,P<=1e-06) %>% arrange(P)
+    print(kable(tophits,digits=3))
+    cat('\n')
+  }
+  else{
+    manhattan(res,suggestiveline=FALSE,main=results,cex.main=0.7)
+    cat('\n')
+  }
+  qq<-qqunif(res$P,plot=TRUE,title=results)
+}
+```

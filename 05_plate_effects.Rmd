@@ -1,0 +1,33 @@
+---
+title: "05_plate_effects"
+author: "Heather Wheeler"
+date: "`r Sys.time()`"
+output: html_document
+---
+Load packages, functions, paths
+```{r load}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+"%&%" = function(a,b) paste(a,b,sep="")
+my.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/genotypes/"
+source(my.dir %&% "qqunif.r")
+```
+qq-plot function
+```{r qq, warning=FALSE, fig.width=5, fig.height=5}
+snps2exclude6 <- vector()
+snps2exclude4 <- vector()
+for(i in 1:12){
+  gwas <- read.table(my.dir %&% 'N88_plate_effects_maf0.05.plate' %&% i %&% '.assoc',header=T)
+  print("Plate " %&% i %&% " v. the rest")
+  print(summary(gwas$P))
+  qqunif(gwas$P,plot=TRUE)
+  topsnps6 <- filter(gwas,P<=1e-06)
+  snps2exclude6 <- c(snps2exclude6,as.character(topsnps6$SNP))
+  topsnps4 <- filter(gwas,P<=1e-04)
+  snps2exclude4 <- c(snps2exclude4,as.character(topsnps4$SNP))
+}
+
+write.table(snps2exclude6,file=my.dir %&% "N88_plate_effects_excludeSNPs_p1e-6.txt",quote=F,col.names=F,row.names=F)
+write.table(snps2exclude4,file=my.dir %&% "N88_plate_effects_excludeSNPs_p1e-4.txt",quote=F,col.names=F,row.names=F)
+```

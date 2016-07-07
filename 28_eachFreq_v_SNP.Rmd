@@ -1,0 +1,92 @@
+---
+title: "28_eachFreq_v_SNP"
+author: "Heather E. Wheeler"
+date: "`r Sys.time()`"
+output: html_document
+---
+
+```{r getData,echo=TRUE,warning=FALSE,message=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(reshape2)
+library(GGally)
+library(scales)
+library(MASS)
+library(sas7bdat) ##read SAS files
+"%&%" = function(a,b) paste(a,b,sep="")
+elementMean <- function(my.list) { 
+  arr <- array(unlist(my.list),c(dim(my.list[[1]])[1],dim(my.list[[1]])[2],length(my.list)))
+  rowMeans( arr , na.rm=TRUE, dims = 2 )
+}
+source("~/Github/ThePlatinumStudy/Ototoxicity_modeling/multiplot.R")
+date = Sys.Date()
+my.dir <- '/Users/heather/GitHub/ThePlatinumStudy/Ototoxicity_modeling/Datasets_from_Ryan_Cook_20160219/'
+pheno.dir <- '/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/genotypes/'
+toexclude <- as.character(c(33522, 33528, 33577, 33559, 33581,33578)) #patnos with CARBO from Table ONE Nov 23 circ to RF SENT TO EJ Nov 27 SARAH_updated_11_30_2015_SLK.docx
+
+data <- read.sas7bdat(my.dir %&% 'audiometry.sas7bdat') %>% mutate(PATNO=as.character(patno))
+dosage <- read.sas7bdat(my.dir %&% 'finaldosing.sas7bdat') %>% mutate(PATNO=as.character(PATNO))
+demog <- read.sas7bdat(my.dir %&% 'demographics.sas7bdat') %>% mutate(PATNO=as.character(patno))
+
+#rm samples with CARBO
+data <- data[!(data$PATNO %in% toexclude),]
+dosage <- dosage[!(dosage$PATNO %in% toexclude),]
+demog <- demog[!(demog$PATNO %in% toexclude),]
+
+##divide by ear
+airl<-filter(data,C_AUDTEST==1,C_EARLR==1)
+airr<-filter(data,C_AUDTEST==1,C_EARLR==2)
+bonel<-filter(data,C_AUDTEST==2,C_EARLR==1)
+boner<-filter(data,C_AUDTEST==2,C_EARLR==2)
+dbcL<-airl %>% dplyr::select(C_CND250,C_CND500,C_CND1000,C_CND1500,C_CND2000,C_CND3000,C_CND4000,C_CND6000,C_CND8000,C_CND10000,C_CND12000)
+dbcR<-airr %>% dplyr::select(C_CND250,C_CND500,C_CND1000,C_CND1500,C_CND2000,C_CND3000,C_CND4000,C_CND6000,C_CND8000,C_CND10000,C_CND12000)
+dbbL<-bonel %>% dplyr::select(C_CND250, C_CND500, C_CND1000, C_CND2000, C_CND4000)
+dbbR<-boner %>% dplyr::select(C_CND250, C_CND500, C_CND1000, C_CND2000, C_CND4000)
+```
+
+
+###plot each freq vs. top SNP genotype
+```{r,fig.height=8,fig.width=8}
+a<-list(dbcL,dbcR)
+dbcM <- data.frame(elementMean(a))
+dbcM[ is.na(dbcM) ] <- NA
+colnames(dbcM)<-c('0.25','0.5','1','1.5','2','3','4','6','8','10','12')
+meandB <- dbcM %>% mutate(PATNO=airl$PATNO)
+data<-read.table(pheno.dir %&% "rs62283056_PtStudy.pheno.cov.txt",header=TRUE) %>% mutate(PATNO=as.character(patno))
+dBSNP <- left_join(meandB,data,by='PATNO')
+dBSNP <- dplyr::select(dBSNP,`0.25`,`0.5`,`1`,`1.5`,`2`,`3`,`4`,`6`,`8`,`10`,`12`,CumlCispdose,PATNO,ageaudio,SNP,starts_with('PC')) %>% dplyr::rename(`0.25 kHz`=`0.25`,`0.5 kHz`=`0.5`,`1 kHz`=`1`,`1.5 kHz`=`1.5`,`2 kHz`=`2`,`3 kHz`=`3`,`4 kHz`=`4`,`6 kHz`=`6`,`8 kHz`=`8`,`10 kHz`=`10`,`12 kHz`=`12`)
+gdBSNP <- gather(dBSNP,Hz,dB,-CumlCispdose,-PATNO,-ageaudio,-SNP,-starts_with('PC'))
+gdBSNP <- gdBSNP[complete.cases(gdBSNP),]
+p<-ggplot(gdBSNP,aes(x=SNP,y=-1*dB))+ geom_point(alpha = 1/3)+geom_smooth(method = "lm",color='red') +facet_wrap(~Hz,ncol=3) + theme_bw() + xlab('rs62283056 genotype') + coord_cartesian(ylim=c(-135,10))+ theme(axis.text.x = element_text(angle = 90, hjust = 1)) +ylab("Hearing threshold (dB)")
+
+##add p-vals to plot
+hzvec <- c("0.25 kHz","0.5 kHz","1 kHz","1.5 kHz","2 kHz","3 kHz","4 kHz","6 kHz","8 kHz","10 kHz","12 kHz")
+## dB ~ dose + age at audio
+pSNPvec <- vector()
+slopevec <- vector()
+slopecivec <- vector()
+for(i in 1:11){
+  res <- summary(lm(-1*dBSNP[,i]~dBSNP$SNP+dBSNP$CumlCispdose+dBSNP$ageaudio+as.matrix(dBSNP[,16:25])))
+  pSNPvec <- c(pSNPvec,signif(res$coef[2,4],2))
+  beta <- signif(res$coef[2,1],2)
+  slopevec <- c(slopevec,beta)
+  lci <- signif(res$coef[2,1]-res$coef[2,2]*2,2)
+  uci <- signif(res$coef[2,1]+res$coef[2,2]*2,2)
+  slopeci <- paste("slope = ",beta," [",lci,",",uci,"], p = ",signif(res$coef[2,4],2),sep="")
+  slopecivec <- c(slopecivec,slopeci)  
+}
+print(slopecivec)
+
+ann_text <- data.frame(SNP = rep(0,11),dB = rep(100,11),eff= slopevec,pval = pSNPvec, Hz = factor(hzvec))
+p2<-p+geom_text(data=ann_text,aes(label=paste("P==",pval,sep="")),parse=T,hjust=0,size=4)+coord_cartesian(ylim=c(-110,10))+theme_bw()+ theme(axis.text.x = element_text(angle = 90, hjust = 1))
+p2
+```
+
+###plot each freq vs. top SNP genotype stratified by dose
+```{r,fig.height=8,fig.width=8}
+gdBSNPdose <- mutate(gdBSNP,dosegroup=ifelse(CumlCispdose<=300,0,1),SNPround=round(SNP)) 
+##just plot 0,1,2 genotypes (round)
+databox <- filter(gdBSNPdose,is.na(dosegroup)==FALSE)
+ggplot(databox,aes(x=factor(SNPround),y=-1*dB, color=factor(dosegroup,labels=c("\u2264 300","> 300")))) + geom_boxplot()+ scale_color_discrete(name="Cisplatin dose") + xlab("rs62283056 genotype")+ylab("Hearing threshold (dB)")+facet_wrap(~Hz,ncol=3) + theme_bw()
+```

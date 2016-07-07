@@ -1,0 +1,45 @@
+---
+title: "27_update_ototox_gwas_correct_doses"
+author: "Heather Wheeler"
+date: "March 1, 2016"
+output: html_document
+---
+###Load packages, functions, paths
+```{r load,message=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(sas7bdat) ##read SAS files
+library(foreign) ##read SPSS files, doesn't work with Fossa file, ask Ryan to convert to txt
+library(psych)
+library(MASS)
+"%&%" = function(a,b) paste(a,b,sep="")
+elementMean <- function(my.list) { 
+  arr <- array(unlist(my.list),c(dim(my.list[[1]])[1],dim(my.list[[1]])[2],length(my.list)))
+  rowMeans( arr , na.rm=TRUE, dims = 2 )
+}
+source("/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/CIPN_modeling/ztransform.R")
+source("/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/CIPN_modeling/rntransform.R")
+my.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/"
+pca.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/PCA/"
+##has additional audiometry:
+old.pheno.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/Datasets_from_Ryan_Cook_20151123/"
+##only includes the 488 in ototox paper:
+new.pheno.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/Datasets_from_Ryan_Cook_20160219/"
+ptcov.dir <- my.dir %&% "genotypes/"
+```
+
+```{r}
+old <- read.table(ptcov.dir %&% "PtStudy.phenofile.20160119",header=T)
+hist(old$CumlCispdose)
+summary(old$CumlCispdose)
+newdoses <- read.sas7bdat(new.pheno.dir %&% "finaldosing.sas7bdat") 
+newdoses <- newdoses %>% mutate(IID=as.character(PATNO)) %>% dplyr::select(IID,CumlCispdose)
+#if there is a new dose, add it, otherwise, keep the old CumlCispdose
+new <- left_join(old,newdoses,by='IID') %>% mutate(CumlCispdose=ifelse(is.na(CumlCispdose.y),CumlCispdose.x,CumlCispdose.y))
+hist(new$CumlCispdose)
+##checking on the 100 mg/m2 doses with Ryan
+summary(new$CumlCispdose)
+forototox <- dplyr::select(new,-CumlCispdose.x,-CumlCispdose.y)
+write.table(forototox,file=ptcov.dir %&% "PtStudy.phenofile",quote=F,row.names=F)
+```

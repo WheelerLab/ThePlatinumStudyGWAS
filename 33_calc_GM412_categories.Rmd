@@ -1,0 +1,40 @@
+---
+title: "33_calc_GM412_categories"
+author: "Heather Wheeler"
+date: "May 26, 2016"
+output: html_document
+---
+
+Load packages, functions, paths
+```{r load}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(calibrate)
+library(knitr)
+"%&%" = function(a,b) paste(a,b,sep="")
+my.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/"
+```
+
+```{r}
+pheno<-read.table(my.dir %&% "genotypes/PtStudy.phenofile_20160328",header=T)
+dplyr::filter(pheno,is.na(CumlCispdose)==TRUE)
+pheno511<-dplyr::filter(pheno,patno!="31761")
+#round hearing threshold 
+ht <- round(pheno511$GM412)
+# <= 20
+table(ht<=20)
+table(ht<=20)/511
+# 21 - 40
+table(ht>20 & ht<=40)
+table(ht>20 & ht<=40)/511
+# 41 - 55
+table(ht>40 & ht<=55)
+table(ht>40 & ht<=55)/511
+# 56 - 70
+table(ht>55 & ht <=70)
+table(ht>55 & ht <=70)/511
+# > 70
+table(ht>70)
+table(ht>70)/511
+```

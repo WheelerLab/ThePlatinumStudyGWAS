@@ -1,0 +1,132 @@
+---
+title: "10_plot_GWAS_results"
+author: "Heather Wheeler"
+date: "`r Sys.time()`"
+output: html_document
+---
+
+Load packages, functions, paths
+```{r load}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(calibrate)
+library(knitr)
+library(data.table)
+"%&%" = function(a,b) paste(a,b,sep="")
+my.dir = "/Volumes/dolan-lab/hwheeler/ThePlatinumStudy/GWAS/"
+source(my.dir %&% "genotypes/qqunif.r")
+source(my.dir %&% "manhattan.R")
+#qq-man plot function
+gwasplots = function(filevec){
+  for(file in filevec){
+    gwas <- fread(file,header=T)
+    print(file)
+    gwas <- gwas[complete.cases(gwas),] #rm NAs
+    gwas <- dplyr::filter(gwas,FRQ>=0.05,FRQ<=0.95,INFO<1.05) ##The INFO metric is calculated based on the entire file, based on the ratio of empirical and expected variance in dosage. Values closer to 1 indicate better expected quality of imputation. Values can be above 1: note that values much greater than 1 can indicate strong departure from HWE. from http://pngu.mgh.harvard.edu/~purcell/plink/dosage.shtml 
+#    saveRDS(gwas$SNP,file=my.dir %&% "genotypes/UMich_imputation_results/mach_dosage_files/N88.imputed_MAF0.05_INFOlt1.05_SNPlist.rds") #for filtering prior to ordreg
+    qq<-qqunif(gwas$P,plot=TRUE)
+    man<-manhattan(gwas,suggestiveline = FALSE, col=c("green", "blue", "purple"), annotatePval = 1e-06)
+    qq
+    man
+    cat('\n')
+    tophits <- dplyr::filter(gwas,P<=1e-06) %>% arrange(P)
+    print(kable(tophits))
+    cat('\n')
+  }
+}
+```
+
+## rnGM412 = SNP + ageaudio + CumlCispdose + 10 PCs
+###PLINK code:
+```plink --fam genotypes/N88.forImputation.fam --dosage plink-doselist.txt list sepheader format=1 --pheno genotypes/PtStudy.phenofile --linear --pheno-name rnGM412 --covar genotypes/PtStudy.covfile --map genotypes/UMich_imputation_results/mach_dosage_files/N88.imputed_maf0.01_R20.8_1000G.chr${i}.bim --out GWAS_results/N88.imputed_rnGM412_${covtag}_chr${i}```
+
+###get HWE results
+```{r}
+for(i in 1:22){
+  hw <- fread(my.dir %&% "genotypes/UMich_imputation_results/hwe_results/chr" %&% i %&% ".dose_maf0.01_rm.indel.hwe")
+  if(exists("allHW") == FALSE){
+      allHW = hw
+  }else{
+      allHW <- rbind(allHW, hw)
+  }
+}
+allHW <- mutate(allHW, SNPpos=SNP, hweP=P) %>% dplyr::select(SNPpos, hweP)
+```
+
+
+```{r prelimGM412,warning=FALSE,fig.width=6.5,fig.height=6.5,results='asis'}
+filelist <- c(my.dir %&% "GWAS_results/N88.imputed_rnGM412_age.NEWcisp.PCs1-10_chr1-22.assoc.dosage")
+#gwasplots(filelist)
+gwas <- fread(filelist,header=T)
+gwas <- mutate(gwas, SNPpos = paste(CHR, BP, sep=":"))
+gwas <- left_join(gwas,allHW,by="SNPpos")
+gwasfilt <- dplyr::filter(gwas,FRQ>=0.05,FRQ<=0.95,INFO<1.05,hweP>1e-06)
+dim(gwasfilt) # num SNPs in GWAS
+gwaswrite <- dplyr::select(gwasfilt,-SNPpos,-hweP)
+write.table(gwaswrite,file="TableS2_all_sum_stats.txt",quote=F,row.names=F)
+gwasfilt2 <- dplyr::filter(gwas,FRQ>=0.05,FRQ<=0.95,INFO<1.05,hweP>0.05)
+dim(gwasfilt2) # num SNPs in GCTA
+gwas2 <- dplyr::filter(gwasfilt,P<0.01)
+#only plot SNPs with P<0.01
+#manhattan(gwas2,suggestiveline = FALSE, col=c("green", "blue", "purple"), annotatePval = 1e-06,ylim=c(2,8))
+#jpeg(filename= my.dir %&% "plots/rnGM412_age.NEWdose.10PCs.hwe1e-06_manplot.jpeg",width=600,height=360,res=100)
+#manhattan(gwas,suggestiveline = FALSE, col=c("green", "blue", "purple"), annotatePval = 1e-06)
+#manhattan(gwas2,suggestiveline = FALSE, col=c("green", "blue", "purple"),ylim=c(2,8))
+#dev.off()
+
+setEPS()
+postscript(file= my.dir %&% "plots/rnGM412_age.NEWdose.10PCs.hwe1e-06_manplot.eps",width=8,height=3.6)
+manhattan(gwas2,suggestiveline = FALSE, col=c("green", "blue", "purple"),ylim=c(2,8),annotatePval=5e-08)
+dev.off()
+
+pdf(file= my.dir %&% "plots/rnGM412_age.NEWdose.10PCs.hwe1e-06_manplot.pdf",width=8,height=3.6)
+manhattan(gwas2,suggestiveline = FALSE, col=c("green", "blue", "purple"),ylim=c(2,8),annotatePval=5e-08)
+dev.off()
+
+summary(gwas$P)
+#qqunif(gwas$P,plot=TRUE)
+#jpeg(filename= my.dir %&% "plots/rnGM412_age.dose.10PCs_qqplot.jpeg")
+#qqunif(gwas$P,plot=TRUE)
+#dev.off()
+tophits <- dplyr::filter(gwas,P<=1e-06) %>% arrange(P)
+tophits
+```
+
+## QQ-plot of all SNPs and SNPs in deafness genes
+```{r}
+genes<-read.table(my.dir %&% "deafness_genes/N88.imputed_rnGM412_age.NEWcisp.10PCs_chr1-22.assoc.dosage_combined_deafness_genes_50kb.txt",header=T) %>% arrange(P)
+dim(genes)
+nn = length(genes$P)
+xx =  -log10((1:nn)/(nn+1))
+#jpeg(filename= my.dir %&% "plots/rnGM412_age.NEWdose.10PCs.hwe1e-06_qqplot_combined_deafness_genes_50kb.jpeg",res=100)
+#qqunif(gwasfilt$P,plot=TRUE,BH=F)
+#points(xx,-log10(genes$P),cex=0.5,pch=19,col='red')
+#legend('bottomright', c("SNPs in Mendelian\nGenes for Deafness","All SNPs"),col=c('red','black'), pch=19, cex=1)
+#dev.off()
+
+setEPS()
+postscript(file= my.dir %&% "plots/rnGM412_age.NEWdose.10PCs.hwe1e-06_qqplot_combined_deafness_genes_50kb.eps",width=4,height=4)
+qqunif(gwasfilt$P,plot=TRUE,BH=F)
+points(xx,-log10(genes$P),cex=0.5,pch=19,col='red')
+legend('bottomright', c("SNPs in Mendelian\nGenes for Deafness","All SNPs"),col=c('red','black'), pch=19, cex=1)
+dev.off()
+
+pdf(file= my.dir %&% "plots/rnGM412_age.NEWdose.10PCs.hwe1e-06_qqplot_combined_deafness_genes_50kb.pdf",width=4,height=4)
+qqunif(gwasfilt$P,plot=TRUE,BH=F)
+points(xx,-log10(genes$P),cex=0.5,pch=19,col='red')
+legend('bottomright', c("SNPs in Mendelian\nGenes for Deafness","All SNPs"),col=c('red','black'), pch=19, cex=1)
+dev.off()
+
+a<-filter(genes,P<0.01)
+dim(a)
+unique(a$gene)
+
+a<-filter(genes,P<0.05)
+dim(a)
+unique(a$gene)
+```
+
+###top hit rs62283056 is in the first intron of *WFS1* Wolfram syndrome 1 (wolframin): 
+- This gene encodes a transmembrane protein, which is located primarily in the endoplasmic reticulum and ubiquitously expressed with highest levels in brain, pancreas, heart, and insulinoma beta-cell lines. Mutations in this gene are associated with Wolfram syndrome, also called DIDMOAD (Diabetes Insipidus, Diabetes Mellitus, Optic Atrophy, and Deafness), an autosomal recessive disorder. The disease affects the brain and central nervous system. Mutations in this gene can also cause autosomal dominant deafness 6 (DFNA6), also known as DFNA14 or DFNA38. Alternatively spliced transcript variants have been found for this gene. [provided by RefSeq, Mar 2009] 
+
